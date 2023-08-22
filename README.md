@@ -693,6 +693,71 @@ R^2 (k-fold CV): 0.86 ± 0.04
 * 모델 검증: 교차 검증(cross-validation)을 활용하여 모델의 안정성과 일반화 능력을 더욱 검증할 수 있다.
 
 
+# 8.제출
+
+Caggle 측에서 받은 자료를 바탕으로 기계학습을 통해 예측된 test.csv를 submission 파일에 저장 후 제출합니다. 
+
+파일 설명
+* train.csv - 훈련 세트
+* test.csv - 테스트 세트
+* data_description.txt - 원래 Dean De Cock이 준비했지만 여기에 사용된 열 이름과 일치하도록 약간 편집한 각 열의 전체 설명
+* sample_submission.csv - 판매 연도 및 월, 부지 면적 및 침실 수에 대한 선형 회귀의 벤치마크 제출
+
+##  test.csv를 submission 파일에 저장 후 제출 코드
+
+```python
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.impute import SimpleImputer
+
+# 훈련 데이터를 로드합니다.
+df = pd.read_csv('train.csv')
+
+# SalePrice 컬럼을 따로 저장합니다.
+y = df['SalePrice']
+df_without_target = df.drop('SalePrice', axis=1)
+
+# NaN 값을 가장 빈번한 값으로 대체합니다.
+imputer = SimpleImputer(strategy='most_frequent')
+df_without_target = pd.DataFrame(imputer.fit_transform(df_without_target), columns=df_without_target.columns)
+
+# 원-핫 인코딩 적용
+df_without_target = pd.get_dummies(df_without_target, drop_first=True)
+
+# 특성 선택
+X_train, X_test, y_train, y_test = train_test_split(df_without_target, y, test_size=0.2)
+
+# 모델 학습
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+# 모델 평가
+y_pred = model.predict(X_test)
+print(f'R^2: {model.score(X_test, y_test):.2f}')
+
+# 테스트 데이터를 로드합니다.
+test_df = pd.read_csv('test.csv')
+
+# NaN 값을 가장 빈번한 값으로 대체합니다.
+test_df = pd.DataFrame(imputer.transform(test_df), columns=test_df.columns)
+
+# 테스트 데이터에 원-핫 인코딩 적용
+test_df = pd.get_dummies(test_df, drop_first=True)
+
+# 특성이 train 데이터와 동일한지 확인하고 필요한 경우 0으로 채웁니다.
+missing_cols = set(df_without_target.columns) - set(test_df.columns)
+for col in missing_cols:
+    test_df[col] = 0
+test_df = test_df[df_without_target.columns]
+
+# 테스트 데이터의 SalePrice를 예측합니다.
+test_df['SalePrice'] = model.predict(test_df)
+
+# 테스트 데이터의 SalePrice를 csv 파일로 저장합니다.
+test_df.to_csv('submission.csv', index=False)
+```
+
 
 
 
