@@ -536,6 +536,69 @@ print(f"Mean Squared Error: {mse}")
 Mean Squared Error: 1667657527.1633682
 ```
 
+## 4.1 랜덤 포레스트 회귀 모델링
+
+* 랜덤 포레스트는 결정 트리(Decision Tree)를 기반으로 하는 앙상블 기법 중 하나이다.
+* 여러 개의 결정 트리들을 학습시키고, 그 결과를 종합하여 예측한다
+* 회귀와 분류 둘 다에 사용할 수 있는 방법이며, 해당 코드에서는 회귀 문제를 해결하기 위한 RandomForestRegressor를 사용해 봤습니다.
+
+```python
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.feature_selection import SelectKBest, chi2
+from sklearn.impute import SimpleImputer
+
+# 훈련 데이터를 로드합니다.
+df = pd.read_csv('data_normalized.csv')
+
+# SalePrice 컬럼을 따로 저장합니다.
+y = df['SalePrice']
+df_without_target = df.drop('SalePrice', axis=1)
+
+# NaN 값을 평균값으로 대체합니다.
+imputer = SimpleImputer(strategy='mean')
+df_without_target = pd.DataFrame(imputer.fit_transform(df_without_target), columns=df_without_target.columns)
+
+# 특성 선택
+X_train, X_test, y_train, y_test = train_test_split(df_without_target, y, test_size=0.2)
+
+selector = SelectKBest(score_func=chi2, k=10)
+X_train_selected = selector.fit_transform(X_train, y_train)
+X_test_selected = selector.transform(X_test)
+
+# 특성 상관관계 축소
+corr = df_without_target.corr()
+high_corr = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+high_corr = high_corr.unstack().reset_index()
+high_corr = high_corr.loc[high_corr['level_0'] != high_corr['level_1'], :]
+
+# 특성 제거
+drop_cols = high_corr.loc[high_corr[0] > 0.9, 'level_0']
+df_without_target = df_without_target.drop(columns=drop_cols)
+
+# 특성 정규화
+scaler = StandardScaler()
+df_without_target = scaler.fit_transform(df_without_target)
+
+# 훈련 데이터와 테스트 데이터로 분리합니다.
+X_train, X_test, y_train, y_test = train_test_split(df_without_target, y, test_size=0.2)
+
+# 모델 학습
+model = RandomForestRegressor(n_estimators=100)
+model.fit(X_train, y_train)
+
+# 모델 평가
+y_pred = model.predict(X_test)
+print(f'R^2: {model.score(X_test, y_test):.2f}')
+
+# 결과
+
+R^2: 0.92
+```
+
 
 
 # 5.모델 검증
@@ -544,25 +607,56 @@ Mean Squared Error: 1667657527.1633682
 
 * 교차 검증: 모델의 안정성을 확인하기 위해 교차 검증을 수행합니다.
 * 성능 지표: RMSE, R^2 등의 성능 지표를 사용하여 모델의 예측 성능을 평가합니다.
-* 
+  
 
 ```python
 from sklearn.model_selection import cross_val_score
+from sklearn.metrics import mean_squared_error, make_scorer
+import numpy as np
 
-# 10-겹 교차 검증
-scores = cross_val_score(model, X, y, cv=10, scoring='neg_mean_squared_error')
+# 모델 정의
+model = RandomForestRegressor(n_estimators=100)
 
-# 결과 출력
-print(f"Mean Squared Error (10-fold CV): {-scores.mean()}")
+# RMSE를 계산하기 위한 스코어 함수 정의
+def rmse(y_true, y_pred):
+    return np.sqrt(mean_squared_error(y_true, y_pred))
+
+rmse_scorer = make_scorer(rmse, greater_is_better=False)
+
+# k-겹 교차 검증을 사용하여 성능 지표 계산
+# 일반적으로 k=10으로 설정하지만, 다른 값도 사용 가능
+k = 10
+
+# RMSE 교차 검증 점수
+rmse_scores = cross_val_score(model, df_without_target, y, cv=k, scoring=rmse_scorer)
+# R^2 교차 검증 점수
+r2_scores = cross_val_score(model, df_without_target, y, cv=k, scoring="r2")
+
+print(f"RMSE (k-fold CV): {-rmse_scores.mean():.2f} ± {rmse_scores.std():.2f}")
+print(f"R^2 (k-fold CV): {r2_scores.mean():.2f} ± {r2_scores.std():.2f}")
+
 ```
+OutPut
 
 ```python
-Mean Squared Error (10-fold CV): 1687214812.5550437
+RMSE (k-fold CV): 28693.94 ± 6075.55
+R^2 (k-fold CV): 0.86 ± 0.04
 ```
+
+#### RMSE:값: 28693.94 ± 6075.55
+* 설명: 모델의 예측 오차를 나타내는 지표. 평균적으로 예측이 실제 값과 약 28,693.94만큼 차이나며, 교차 검증에서의 변동은 ±6075.55 이다.
+
+#### R&2(결정계수):값: 0.86 ± 0.04
+* 설명: 모델이 데이터의 86%의 분산을 설명하고 있으며, 교차 검증에서의 변동은 ±0.04으로 나타났다.
+
+#### 종합 평가:
+* 모델의 설명력은 높으나 RMSE 값으로 볼 때 실제 값과의 차이도 존재합니다. 교차 검증의 표준편차를 통해 모델의 성능이 꽤 안정적임을 확인할 수 있습니다.
 
 * 변수 선택: 피어슨 상관 계수는 선형 관계를 측정합니다. 가장 높은 값을 가진 세 변수는 목표 변수와의 선형 관계가 강하므로 선택되었다.
 
 * 선형 회귀: 선택된 변수들은 부동산 판매 가격과의 선형 관계를 가지므로 선형 회귀가 적합하다 판단 되었다.
+
+* 랜덤 포레스트 회귀 분류 : 회귀와 분류 둘 다에 사용할 수 있는 방법이며, 해당 코드에서는 회귀 문제를 해결하기 위한 RandomForestRegressor를 사용해 봤습니다.
 
 * 모델 검증: 모델의 일반화 성능을 추정하기 위해 교차 검증을 사용합니다. 여러 훈련 및 테스트 세트에 걸쳐 모델을 평가하여 더 안정된 성능 지표를 얻을 수 있었다.
 
@@ -588,8 +682,6 @@ Mean Squared Error (10-fold CV): 1687214812.5550437
 ### 한계점
 
 * 데이터 범위: 분석에 사용된 데이터는 특정 기간 또는 지역에 국한되어 있다.이로 인해 다른 시기나 지역에 적용할 때 결과가 달라질 수 있다.
-* 변수 제한: 분석에서는 몇몇 중요한 변수만을 선택하였다.그러나 부동산 가격에 영향을 미치는 다른 요소들(예: 학교 교육 수준, 지역 안전성, 교통 접근성 등)도 고려해야 한다.
-* 선형 회귀의 가정: 선형 회귀는 일련의 가정들(정규성, 독립성, 등분산성 등)
 * 이상치 처리: 사분위수 방법을 사용하여 이상치를 제거했지만, 이 방법이 항상 최적의 방법은 아닐 수 있다. 다른 방법도 생각해 볼 필요가 있다.
 
 ### 보완점
